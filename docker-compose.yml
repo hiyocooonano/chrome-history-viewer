@@ -1,0 +1,32 @@
+services:
+  spanner-omni:
+    image: us-docker.pkg.dev/spanner-omni/images/spanner-omni:2026.r1-beta
+    container_name: spanner-omni
+    volumes:
+      - spanner-data:/spanner
+    ports:
+      - "15026:15026"
+      - "15000:15000"
+    entrypoint: ["/bin/tini", "--"]
+    command: >
+      sh -c "/google/spanner/bin/spanner start-single-server &
+             sleep 5 &&
+             /app/bin/spanner-console &
+             wait"
+
+  postgres:
+    image: postgres:16
+    container_name: chrome-history-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+volumes:
+  spanner-data:
+  postgres-data:
