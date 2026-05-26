@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__github__create_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\n[git-workflow] PR を作成する前に pr-review-toolkit:code-reviewer agent でレビュー済みか確認してください。\\n  - 未実施 → ブロックします。Agent ツールでレビューを実行してから再度 create_pull_request を呼んでください\\n  - 実施済み → ユーザーに「レビュー実施済み」と明示的に伝えてから再試行してください\\n\\n参考: .claude/skills/git-workflow/SKILL.md\\n' 1>&2; exit 2"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "case \"$CLAUDE_BASH_COMMAND\" in *'git push --force'*|*'git push -f '*|*'git push origin main'*|*'git push origin HEAD:main'*) printf '\\n[git-workflow] 危険な git 操作を検知しました。main への直接 push と force-push はユーザーの明示的な許可なしには実行できません。\\n参考: .claude/skills/git-workflow/SKILL.md\\n' 1>&2; exit 2 ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}
