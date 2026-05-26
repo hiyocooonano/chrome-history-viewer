@@ -14,60 +14,32 @@
 
 利用者は本人想定（オーナー 1 人）。認証なし。
 
-## 技術スタック
+> **Next.js 16 の留意点**: 通常版と挙動が異なる場合がある。新 API を使うときは `node_modules/next/dist/docs/` を必ず確認する（詳細は `AGENTS.md`）。
 
-Next.js 16 (App Router, React 19) / TypeScript / Tailwind v4 / Cytoscape.js（`cytoscape-cola` / `cytoscape-dagre`） / `@google-cloud/spanner` / `pg` / `better-sqlite3` / Jest + ts-jest
-
-> **Next.js のバージョン留意**: 通常版と挙動が異なる場合がある。新 API を使うときは `node_modules/next/dist/docs/` を必ず確認する（詳細は `AGENTS.md`）。
-
-## コマンド
+## プロジェクト固有コマンド
 
 ```bash
-npm run dev               # 開発サーバ (3000 番)
-npm run build             # プロダクションビルド
-npm run lint              # ESLint
-npm test                  # Jest
-
 npm run setup:spanner     # Spanner: 履歴用 schema + HistoryGraph 作成
 npm run migrate:bookmarks # Spanner: ブックマーク用 schema 追加 + Graph 再作成
-
 npm run etl:sqlite-to-pg  # CLI: SQLite → PostgreSQL（引数 or HISTORY_PATH）
 npm run etl:pg-to-spanner # CLI: PostgreSQL → Spanner
 ```
 
-ローカル前提:
+dev server は HTTP port **3000**。
+
+## ローカル接続情報
 
 - Spanner Omni: `localhost:15000`（project=`default`, instance=`default`, db=`history-db`）
 - PostgreSQL: `localhost:5432`（user=`admin`, password=`password`, db=`postgres`, schema=`chrome_history`）
-- `docker compose up -d` → `docker exec spanner-omni /google/spanner/bin/spanner databases create history-db`
+- 初期化: `docker compose up -d` → `docker exec spanner-omni /google/spanner/bin/spanner databases create history-db`
 
-## ディレクトリ早見
+## 重要ファイル
 
-```
-src/
-  app/
-    page.tsx              ← 履歴グラフ
-    bookmarks/page.tsx    ← ブックマーク（mindmap / tree）
-    upload/page.tsx       ← ドラッグ&ドロップで履歴 / ブックマーク投入
-    api/graph/{search,context,bookmarks}/route.ts
-    api/upload/{history,bookmarks}/route.ts   ← maxDuration = 300
-  components/             ← GraphCanvas / BookmarkTree / SearchPanel / Header / UploadPanel ...
-  lib/
-    etl/history-etl.ts    ← Chrome → PG → Spanner
-    etl/bookmark-etl.ts   ← Bookmarks JSON → PG → Spanner
-    graph-queries.ts      ← Spanner GQL → GraphData
-    transform.ts          ← GraphData → CytoscapeElements
-    spanner.ts            ← spannerConfig() / getDatabase()
-    pg.ts                 ← pgConfig() / createPool()
-  types/graph.ts
-scripts/
-  init-db.sql                  ← postgres 初期化（chrome_history schema）
-  setup-spanner-schema.ts
-  migrate-bookmark-schema.ts
-  etl-sqlite-to-pg.ts
-  etl-pg-to-spanner.ts
-__tests__/
-```
+- `src/lib/pg.ts` / `src/lib/spanner.ts` — 接続 helper（**ハードコード禁止**、必ずここ経由）
+- `src/lib/etl/history-etl.ts` / `src/lib/etl/bookmark-etl.ts` — Chrome → PG → Spanner
+- `src/lib/graph-queries.ts` — Spanner GQL → GraphData（期間フィルタもここ）
+- `src/app/api/graph/{search,context,bookmarks}/route.ts` / `src/app/api/upload/{history,bookmarks}/route.ts`（`maxDuration = 300`）
+- `scripts/init-db.sql` — postgres 初期化（`chrome_history` schema）
 
 データ層の責務分担: **Chrome → PG（生データの差分マージ） → Spanner（グラフモデル upsert） → API → クライアント Cytoscape**。
 
@@ -83,6 +55,7 @@ __tests__/
 ## Skill（呼び出して使う）
 
 - `.claude/skills/git-workflow/` — ブランチ運用・PR 手順・GitHub MCP 利用ルール
+- `.claude/skills/documentation-sync/` — コード変更時に CLAUDE.md / rules / DESIGN.md を同期更新するチェックリスト
 
 ## デザイン
 
