@@ -55,6 +55,42 @@ main ← release/x.y.z ← feature/<topic>
 - `mcp__github__create_pull_request` で PR 作成
 - `mcp__github__pull_request_read` でステータス確認
 
+## PR base (target) の選び方 — 「main が release より進んでいる」問題
+
+**バージョン番号だけで release/x.y.z を選ぶと、間の commits が PR diff に混入する事故が起きる**（過去にこの問題で docs PR にコード差分が混じった）。
+
+feature ブランチを `main` から作って、古い `release/1.2.5` を PR base に指定すると、`main` と `release/1.2.5` の間の差分（既に main に入っているコード）も PR diff に含まれてしまう。
+
+### base 選定アルゴリズム
+
+```bash
+# 1. main と最新 release ブランチの差を確認
+git fetch origin
+LATEST_RELEASE=$(git branch -r | grep 'origin/release/' | sed 's|.*origin/||' | sort -V | tail -1)
+AHEAD=$(git rev-list "origin/$LATEST_RELEASE..origin/main" --count)
+```
+
+- `AHEAD == 0` → `$LATEST_RELEASE` をそのまま base に使ってよい
+- `AHEAD > 0` → **新しい release ブランチを main HEAD から作成**して base にする
+  - patch up が妥当（例: `release/1.2.5` → `release/1.2.6`）
+  - もしくはこの PR が機能拡張を含むなら minor up（`release/1.3.0`）
+- release ブランチが存在しない場合 → `release/0.1.0`（または `1.0.0`）を main HEAD から作成
+
+### feature ブランチの派生元
+
+可能なら **PR target と同じブランチから派生**させる:
+
+```bash
+git fetch origin
+git checkout -b feature/topic origin/release/x.y.z  # PR base と同じ
+```
+
+main から派生せざるを得ない場合（複数 feature の並走時など）は、上記アルゴリズムに従って release を patch up する。
+
+### 確認手順
+
+PR 作成直後、必ず `mcp__github__pull_request_read` で `get_files` を呼んで、**diff に意図しないファイルが入っていないか**を確認する。docs PR なら docs 以外のファイルが出てきたら base 選定ミスのサイン。
+
 ## PR 本文テンプレート
 
 ```markdown
