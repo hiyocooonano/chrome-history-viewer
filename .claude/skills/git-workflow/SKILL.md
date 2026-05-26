@@ -55,41 +55,58 @@ main ← release/x.y.z ← feature/<topic>
 - `mcp__github__create_pull_request` で PR 作成
 - `mcp__github__pull_request_read` でステータス確認
 
-## PR base (target) の選び方 — 「main が release より進んでいる」問題
+## PR base (target) の選び方
 
-**バージョン番号だけで release/x.y.z を選ぶと、間の commits が PR diff に混入する事故が起きる**（過去にこの問題で docs PR にコード差分が混じった）。
+「リモートにある release/x.y.z のうち最新版」をバージョン番号で選ぶだけでは事故る。過去に docs PR で:
 
-feature ブランチを `main` から作って、古い `release/1.2.5` を PR base に指定すると、`main` と `release/1.2.5` の間の差分（既に main に入っているコード）も PR diff に含まれてしまう。
+- マージ済みの release を base にして diff にコード差分が混入
+- 既に main にマージ済みの release/1.2.5 (rogue commit が乗って "unmerged" 状態) を選ぶべきと早合点
+- 未マージで in-flight の release/1.2.0 があるのに新規 release/1.2.1 を作成
+
+を全部やった。判定は **2 軸（main のマージ履歴 + 未マージ release）** で行う。
 
 ### base 選定アルゴリズム
 
 ```bash
-# 1. main と最新 release ブランチの差を確認
 git fetch origin
-LATEST_RELEASE=$(git branch -r | grep 'origin/release/' | sed 's|.*origin/||' | sort -V | tail -1)
-AHEAD=$(git rev-list "origin/$LATEST_RELEASE..origin/main" --count)
+
+# 1) 最新マージ済み release version (main の merge commit から取得)
+LATEST_MERGED=$(git log origin/main --merges --pretty=format:'%s' \
+  | grep -oE 'release/[0-9.]+' | head -1 | sed 's|release/||')
+
+# 2) 最新「未マージ」release (merge-base --is-ancestor が false なものの最新)
+LATEST_UNMERGED=""
+for rb in $(git branch -r | grep 'origin/release/' | sed 's|.*origin/||' | sort -V -r); do
+  if ! git merge-base --is-ancestor "origin/$rb" "origin/main"; then
+    LATEST_UNMERGED="$rb"; break
+  fi
+done
 ```
 
-- `AHEAD == 0` → `$LATEST_RELEASE` をそのまま base に使ってよい
-- `AHEAD > 0` → **新しい release ブランチを main HEAD から作成**して base にする
-  - patch up が妥当（例: `release/1.2.5` → `release/1.2.6`）
-  - もしくはこの PR が機能拡張を含むなら minor up（`release/1.3.0`）
-- release ブランチが存在しない場合 → `release/0.1.0`（または `1.0.0`）を main HEAD から作成
+### 判定ロジック
+
+| 状況 | 意味 | アクション |
+|------|------|------------|
+| `LATEST_UNMERGED` が `LATEST_MERGED` より新しいバージョン | **意図された in-flight release**（次のリリース準備中） | これを base にする。feature は **release から派生 or rebase --onto** で同じ起点に揃える |
+| `LATEST_UNMERGED` が `LATEST_MERGED` より古いバージョン | **rogue commits**（マージ済み release に誤って commit された） | 無視。`LATEST_MERGED` の次バージョンで新規 release を作成して base にする |
+| `LATEST_UNMERGED` なし、`LATEST_MERGED` あり | 全 release がマージ済み | `LATEST_MERGED` の次バージョンで新規 release 作成 |
+| `LATEST_UNMERGED` なし、`LATEST_MERGED` なし | 初リリース | `release/0.1.0` または `release/1.0.0` を main HEAD から作成 |
+
+### 次バージョン採番
+
+- **patch up** が default（例: `1.2.7` → `1.2.8`）
+- 機能追加・破壊的変更を含むなら **minor up**（`1.3.0`）／ **major up**（`2.0.0`）
+- 採番に迷ったら docs PR は patch up、機能 PR は意味で決める
 
 ### feature ブランチの派生元
 
-可能なら **PR target と同じブランチから派生**させる:
+- 新規 release を main HEAD から作る場合: feature も main 起点で OK（同じ起点なので diff = 自分の commit のみ）
+- 既存 in-flight release を base にする場合: feature は **その release から派生** するか、main 起点から **`git rebase --onto origin/release/x.y.z origin/main feature/topic`** で付け替える
+  - 付け替え後の push は `--force-with-lease`（ユーザーの明示的承認が必要）
 
-```bash
-git fetch origin
-git checkout -b feature/topic origin/release/x.y.z  # PR base と同じ
-```
+### 必須の確認
 
-main から派生せざるを得ない場合（複数 feature の並走時など）は、上記アルゴリズムに従って release を patch up する。
-
-### 確認手順
-
-PR 作成直後、必ず `mcp__github__pull_request_read` で `get_files` を呼んで、**diff に意図しないファイルが入っていないか**を確認する。docs PR なら docs 以外のファイルが出てきたら base 選定ミスのサイン。
+PR 作成直後に `mcp__github__pull_request_read` で `get_files` を呼んで diff に意図しないファイルが入っていないか確認する。docs PR なら docs 以外のファイル、機能 PR なら関係ないモジュールが出てきたら base 選定ミスのサイン。
 
 ## PR 本文テンプレート
 
