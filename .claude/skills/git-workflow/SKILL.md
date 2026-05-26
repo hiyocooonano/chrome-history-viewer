@@ -116,6 +116,51 @@ PR 作成直後、必ず `mcp__github__pull_request_read` で `get_files` を呼
 - ただし release ブランチは複数 PR を受け入れる前提なので、release/x.y.z は使い回し可
 - マージ済みの V*.sql マイグレーションは**書き換えない**。次の V*.sql を追加して evolve する
 
+## リリースブランチのライフサイクル
+
+`main → release/x.y.z → feature/*` の運用に加えて、release ブランチ自体の
+**作成・マージのタイミングで Milestone と Tag/Release を必ず操作する**。
+追跡可能性を保つため省略しない。
+
+### 1. release/x.y.z 作成時 — Milestone を作成
+
+```bash
+# 例: release/1.2.7 を main から作成した直後
+gh api repos/{owner}/{repo}/milestones \
+  -f title="v1.2.7" \
+  -f description="release/1.2.7 に含まれる変更を集約。main マージ時に削除し v1.2.7 タグを発行する。" \
+  -f state=open
+```
+
+- Milestone 名は `vX.Y.Z`（ブランチ名から `release/` を外して `v` を付ける）
+- この release を base にする PR には作成時に Milestone を紐付ける
+  - `mcp__github__create_pull_request` 後に `mcp__github__update_pull_request` の `milestone` で番号指定
+
+### 2. release/x.y.z を main にマージした時
+
+順序は **Milestone 削除 → Tag 兼 Release 作成**。
+
+```bash
+# Milestone を削除（履歴を残したい場合は state=closed への変更でも可）
+gh api -X DELETE repos/{owner}/{repo}/milestones/<number>
+
+# Tag + GitHub Release を作成（auto-generated notes でその release の PR をまとめる）
+gh release create v1.2.7 \
+  --target main \
+  --title "v1.2.7" \
+  --generate-notes
+```
+
+- Tag 名は Milestone と同じ `vX.Y.Z`
+- `--target main` を必ず指定（マージ後の main HEAD を打点）
+- `--generate-notes` でその tag に含まれる PR / commit を自動集約
+
+### MCP との関係
+
+GitHub MCP には Milestone / Release 作成専用ツールが現状ないため、`gh api` /
+`gh release` を使用する。読み取り系（`list_releases`, `get_release_by_tag` 等）は
+MCP を優先する。
+
 ## 機密情報
 
 - 本番ログを引用する時は IP / トークン / 秘密鍵などをマスク
